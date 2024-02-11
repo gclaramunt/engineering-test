@@ -1,0 +1,7 @@
+submit 12 BubbleBathOptimization
+cancel 12
+submit 10 BubbleBathOptimization
+(advance) 4
+status
+(advance) 100
+status
