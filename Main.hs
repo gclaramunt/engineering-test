@@ -40,13 +40,13 @@ duration (UnicornWrangling _ _) = 300
 
 data TaskResult = Success String | Failure String deriving (Show)
 
-data TaskStatus = Running | Result TaskResult deriving (Show)
+data TaskStatus = Running String | Result TaskResult deriving (Show)
 
-data TaskRunInfo = TaskRunInfo {task :: TaskDefinition, start_time :: Int, status :: TaskStatus} deriving (Show)
+data TaskRunInfo = TaskRunInfo {task :: TaskDefinition, start_time :: Int} deriving (Show)
 
-data Executor = Executor {max_tasks :: Int, tasks :: [TaskRunInfo]}
+data Executor = Executor {max_tasks :: Int, tasks :: [TaskRunInfo]} deriving (Show)
 
-data Simulation = Simulation {executor :: Executor, time :: Time}
+data Simulation = Simulation {executor :: Executor, time :: Time} deriving (Show)
 
 data ExecutorOp = Submit TaskDefinition | Cancel TaskId | Status | Advance Time
 
@@ -68,22 +68,26 @@ parse ["status"] = Status
 parse ["(advance)", time] = Advance $ read time
 parse _ = error "Unknown command"
 
-taskResult task_ri =
-  if task_id (task task_ri) `mod` 10 == 3
-    then Success $ "finished task" ++ show task_ri
-    else Failure $ "task failed" ++ show task_ri
+taskResult task_ri = Result result
+  where
+    result =
+      if task_id (task task_ri) `mod` 10 == 3
+        then Success $ "finished task" ++ show task_ri
+        else Failure $ "task failed" ++ show task_ri
+
+runningStatus task_ri = Running $ "Running" ++ show task_ri
 
 -- submit a task
-simulationStep :: Simulation -> ExecutorOp -> (Simulation, [TaskResult])
+simulationStep :: Simulation -> ExecutorOp -> (Simulation, [TaskStatus])
 simulationStep sim@(Simulation Executor {max_tasks = max_tasks, tasks = tasks} time) (Submit task_def) =
   if length tasks < max_tasks
-    then (Simulation (Executor max_tasks (TaskRunInfo task_def time Running : tasks)) time, [])
-    else (sim, [Failure "Exceded max number of running tasks"])
+    then (Simulation (Executor max_tasks (TaskRunInfo task_def time : tasks)) time, [])
+    else (sim, [Result $ Failure "Exceded max number of running tasks"])
 -- cancel task
 simulationStep (Simulation Executor {max_tasks = max_tasks, tasks = tasks} time) (Cancel task_id') =
-  (Simulation (Executor max_tasks still_running) time, [Failure ("Cancelled task " ++ show task_id')])
+  (Simulation (Executor max_tasks still_running) time, [Result $ Failure ("Cancelled task " ++ show task_id')])
   where
-    still_running = filter (\t_id -> task_id' == task_id (task t_id)) tasks
+    still_running = filter (\t_id -> task_id' /= task_id (task t_id)) tasks
 -- advance simulation time, finishing the tasks completed in that period
 simulationStep (Simulation Executor {max_tasks = max_tasks, tasks = tasks} current_time) (Advance time) =
   (Simulation (Executor max_tasks still_running) new_time, results)
@@ -91,14 +95,15 @@ simulationStep (Simulation Executor {max_tasks = max_tasks, tasks = tasks} curre
     new_time = current_time + time
     (finished, still_running) = partition (isDone new_time) tasks
     results = map taskResult finished
+-- report task status
 simulationStep sim@(Simulation Executor {max_tasks = max_tasks, tasks = tasks} current_time) Status =
   (sim, results)
   where
-    results = map taskResult tasks
+    results = map runningStatus tasks
 
 simulationLoop sim = do
-  input <- readLn
-  let op = parse input
+  input <- getLine
+  let op = parse $ words input
   let (new_sim, results) = simulationStep sim op
   print results
   simulationLoop new_sim
